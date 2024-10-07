@@ -1,0 +1,23 @@
+{
+  "name": "plant-analyzer",
+  "version": "1.0.0",
+  "description": "The Plant Analyzer is an AI-powered project designed to analyze plant health. Using advanced image recognition and machine learning algorithms, the tool identifies plant species, detects diseases, and assesses overall plant conditions. The AI tool automates the analysis process, offering real-time analysis..",
+  "main": "app.js",
+  "scripts": {
+    "start": "nodemon app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-ai/generativelanguage": "^2.6.0",
+    "@google/generative-ai": "^0.21.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.15.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}
