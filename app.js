@@ -1,76 +1,118 @@
+require("dotenv").config();
 const express = require("express");
 const multer = require("multer");
+const PDFDocument = require("pdfkit");
 const fs = require("fs");
-const fsPromises = require("fs").promises;
-const { TextServiceClient } = require('@google-ai/generativelanguage'); // Use correct client
+const fsPromises = fs.promises;
+const path = require("path");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 const port = process.env.PORT || 5000;
-const apiKey = process.env.GEMINI_API_KEY || "GEMINI_API_KEY";
 
-// Initialize the client with the API key
-const client = new TextServiceClient({ apiKey: apiKey });
-
-// Configure multer to store uploaded files
-const upload = multer({ dest: "uploads/" });
-
-// Configure express to use JSON
+//configure multer
+const upload = multer({ dest: "upload/" });
 app.use(express.json({ limit: "10mb" }));
 
-// Configure express to serve static files
+//initialize Google Generative AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 app.use(express.static("public"));
 
-// Route to upload the image
-app.post("/upload", upload.single("image"), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: "No file uploaded" });
-    }
-    res.json({ success: true });
-});
-
-// Route to analyze the image
+//routes
+//analyze
 app.post("/analyze", upload.single("image"), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: "Please upload an image" });
-        }
-        
-        const imagePath = req.file.path;
-        const imageData = await fsPromises.readFile(imagePath, { encoding: "base64" });
-
-        // Analyze the image using the Gemini API
-        const results = await client.generateText({
-            prompt: "Please analyze the provided plant image thoroughly and identify the species of the plant. Include a detailed assessment of its health and identify any diseases or pests that may be present. Describe the core characteristics of the plant and provide care recommendations based on its needs. Additionally, outline the optimal planting season and conditions for this species. Finally, give step-by-step instructions for proper care. Please respond in plain text without any markdown formatting.",
-            inlineData: {
-                mimeType: req.file.mimetype,
-                data: imageData
-            }
-        });
-
-        // Write the result to a file
-        const plantInfo = results.response.text; // Ensure this corresponds to your API's response format
-        
-        // Remove the uploaded image
-        await fsPromises.unlink(imagePath);
-        
-        res.json({
-            success: true,
-            plantInfo: plantInfo,
-            image: `data:${req.file.mimetype};base64,${imageData}`
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "An error occurred during analysis." });
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file uploaded" });
     }
+
+    const imagePath = req.file.path;
+    const imageData = await fsPromises.readFile(imagePath, {
+      encoding: "base64",
+    });
+
+    // Use the Gemini model to analyze the image
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const result = await model.generateContent([
+      "Analyze the provided plant image thoroughly and identify the species of the plant. Include a detailed assessment of its health, any diseases, and care recommendations.",
+      {
+        inlineData: {
+          mimeType: req.file.mimetype,
+          data: imageData,
+        },
+      },
+    ]);
+
+    const plantInfo = result.response.text();
+
+    // Clean up: delete the uploaded file
+    await fsPromises.unlink(imagePath);
+
+    // Respond with the analysis result and the image data
+    res.json({
+      result: plantInfo,
+      image: `data:${req.file.mimetype};base64,${imageData}`,
+    });
+  } catch (error) {
+    console.error("Error analyzing image:", error);
+    res
+      .status(500)
+      .json({ error: "An error occurred while analyzing the image" });
+  }
 });
 
-// Route to download the PDF
-app.post("/download", async (req, res) => {
-    // Your PDF generation logic here
-    res.json({ success: true });
+//download pdf
+app.post("/download", express.json(), async (req, res) => {
+  const { result, image } = req.body;
+  try {
+    //Ensure the reports directory exists
+    const reportsDir = path.join(__dirname, "reports");
+    await fsPromises.mkdir(reportsDir, { recursive: true });
+    //generate pdf
+    const filename = `plant_analysis_report_${Date.now()}.pdf`;
+    const filePath = path.join(reportsDir, filename);
+    const writeStream = fs.createWriteStream(filePath);
+    const doc = new PDFDocument();
+    doc.pipe(writeStream);
+    // Add content to the PDF
+    doc.fontSize(24).text("Plant Analysis Report", {
+      align: "center",
+    });
+    doc.moveDown();
+    doc.fontSize(24).text(`Date: ${new Date().toLocaleDateString()}`);
+    doc.moveDown();
+    doc.fontSize(14).text(result, { align: "left" });
+    //insert image to the pdf
+    if (image) {
+      const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Buffer.from(base64Data, "base64");
+      doc.moveDown();
+      doc.image(buffer, {
+        fit: [500, 300],
+        align: "center",
+        valign: "center",
+      });
+    }
+    doc.end();
+    //wait for the pdf to be created
+    await new Promise((resolve, reject) => {
+      writeStream.on("finish", resolve);
+      writeStream.on("error", reject);
+    });
+    res.download(filePath, (err) => {
+      if (err) {
+        res.status(500).json({ error: "Error downloading the PDF report" });
+      }
+      fsPromises.unlink(filePath);
+    });
+  } catch (error) {
+    console.error("Error generating PDF report:", error);
+    res
+      .status(500)
+      .json({ error: "An error occurred while generating the PDF report" });
+  }
 });
-
-// Starting the server
+//start the server
 app.listen(port, () => {
-    console.log(`Listening on port ${port}`);
+  console.log(`Listening on port ${port}`);
 });

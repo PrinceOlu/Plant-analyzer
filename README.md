@@ -8,3 +8,5 @@ steps
 3) get API key  from Gemini API
 https://ai.google.dev/
 4) npm i nodemon -D
+5) install the gemini package
+npm install @google/generative-ai
